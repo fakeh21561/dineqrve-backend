@@ -1,5 +1,7 @@
 // src/index.js
-require('dotenv').config();
+if (process.env.NODE_ENV !== 'production') {
+    require('dotenv').config();
+}
 
 console.log('📁 Current directory:', __dirname);
 console.log('🔑 GEMINI_API_KEY exists:', !!process.env.GEMINI_API_KEY);
@@ -9,7 +11,7 @@ console.log('🔑 GEMINI_API_KEY length:', process.env.GEMINI_API_KEY ? process.
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const db = require('./config/db');
+const { pool, testConnection } = require('./config/db');
 const reportRoutes = require('./routes/reportRoutes');
 const path = require('path');
 
@@ -52,13 +54,10 @@ app.use('/api/test', testRoutes);
 
 
 // Test database connection
-db.getConnection((err, connection) => {
-    if (err) {
-        console.error('❌ Database connection failed:', err.message);
-        process.exit(1);
+testConnection().then(success => {
+    if (!success) {
+        console.log('⚠️ Database connection failed, but app will continue...');
     }
-    console.log('✅ Database connected successfully!');
-    connection.release();
 });
 
 // Routes
@@ -95,7 +94,7 @@ app.use((err, req, res, next) => {
 
 // Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📡 API available at http://localhost:${PORT}/api`);
 });
