@@ -97,7 +97,7 @@ const uploadImageWeb = async (req, res) => {
         const filepath = path.join(uploadDir, newFilename);
         fs.writeFileSync(filepath, imageBuffer);
         
-        const imageUrl = `http://localhost:5000/uploads/${newFilename}`;
+        const imageUrl = `https://web-production-4c9c0.up.railway.app/uploads/${req.file.filename}`;
         
         if (item_id) {
             await db.query(

@@ -36,9 +36,13 @@ const app = express();
 // ========== CORS CONFIGURATION ==========
 // Allow all origins for development
 app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+  origin: [
+    'https://dineqrve-website.web.app',
+    'https://dineqrve-manager.web.app',
+    'https://dineqrve.site',
+    'http://localhost:5500'
+  ],
+  credentials: true
 }));
 
 // Middleware
