@@ -2,6 +2,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const db = require('../config/db');
+const cloudinaryService = require('../services/cloudinaryService');
 
 // Configure storage
 const storage = multer.diskStorage({
@@ -18,6 +19,9 @@ const storage = multer.diskStorage({
         cb(null, 'menu-' + uniqueSuffix + ext);
     }
 });
+
+
+
 
 // File filter
 const fileFilter = (req, file, cb) => {
@@ -85,19 +89,10 @@ const uploadImageWeb = async (req, res) => {
         const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
         const imageBuffer = Buffer.from(base64Data, 'base64');
         
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const ext = path.extname(filename) || '.jpg';
-        const newFilename = 'menu-' + uniqueSuffix + ext;
-        const uploadDir = path.join(__dirname, '../../uploads');
+        // Upload to Cloudinary
+        const result = await cloudinaryService.uploadImage(imageBuffer, filename);
         
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        
-        const filepath = path.join(uploadDir, newFilename);
-        fs.writeFileSync(filepath, imageBuffer);
-        
-        const imageUrl = `https://web-production-4c9c0.up.railway.app/uploads/${req.file.filename}`;
+        const imageUrl = result.secure_url;
         
         if (item_id) {
             await db.query(
@@ -109,7 +104,7 @@ const uploadImageWeb = async (req, res) => {
         res.json({
             success: true,
             image_url: imageUrl,
-            filename: newFilename
+            public_id: result.public_id
         });
     } catch (error) {
         console.error('Upload error:', error);
@@ -147,6 +142,8 @@ const serveImage = (req, res) => {
         res.status(404).json({ error: 'Image not found' });
     }
 };
+
+
 
 module.exports = {
     uploadImage,
