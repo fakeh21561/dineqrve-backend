@@ -37,12 +37,16 @@ const app = express();
 // Allow all origins for development
 app.use(cors({
   origin: [
-    'https://dineqrve-website.web.app',
-    'https://dineqrve-manager.web.app',
-    'https://dineqrve.site',
-    'http://localhost:5500'
+    'http://localhost:5500',                    // Local development
+    'http://127.0.0.1:5500',
+    'https://dineqrve-website.web.app',         // Your customer website
+    'https://dineqrve-manager.web.app',         // Your Flutter manager app ← ADD THIS
+    'https://dineqrve.site',                    // Your custom domain (if connected)
+    'https://web-production-4c9c0.up.railway.app' // Your backend itself
   ],
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Middleware
