@@ -1,14 +1,13 @@
 const db = require('../config/db');
+const aiAnalyticsService = require('../services/aiAnalyticsService');
 
 // Create new order - NOW WITH PAYMENT CHECK
 exports.createOrder = async (req, res) => {
   const { table_number, customer_name, items, payment_method, payment_confirmed } = req.body;
   
+  let connection;
   try {
     // IMPORTANT: Only allow order creation if payment is confirmed
-    // For online payments, this should ONLY be called from payment callback
-    // For cash/offline, this should ONLY be called from staff app
-    
     if (!payment_confirmed && payment_method !== 'cash' && payment_method !== 'qr') {
       return res.status(400).json({
         success: false,
@@ -17,7 +16,7 @@ exports.createOrder = async (req, res) => {
     }
     
     // Start transaction
-    const connection = await db.getConnection();
+    connection = await db.getConnection();
     await connection.beginTransaction();
     
     // 1. Calculate total price
@@ -29,23 +28,28 @@ exports.createOrder = async (req, res) => {
       );
       total += menuItem[0].price * item.quantity;
     }
-    
-    // 2. Create order with payment status
+
+    // 2. Get estimated preparation time using AI
+    const estimation = await aiAnalyticsService.estimatePreparationTime(items);
+    const estimatedMinutes = estimation.estimated_minutes;
+
+    // 3. Create order with payment status AND estimated time
     const [orderResult] = await connection.query(
       `INSERT INTO orders 
-       (table_number, customer_name, total_price, payment_status, payment_method) 
-       VALUES (?, ?, ?, ?, ?)`,
+       (table_number, customer_name, total_price, payment_status, payment_method, status, estimated_time) 
+       VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
       [
         table_number, 
         customer_name, 
         total, 
         payment_confirmed ? 'paid' : 'pending',
-        payment_method || 'unknown'
+        payment_method || 'unknown',
+        estimatedMinutes
       ]
     );
     const orderId = orderResult.insertId;
     
-    // 3. Add order items
+    // 4. Add order items
     for (const item of items) {
       await connection.query(
         'INSERT INTO order_items (order_id, menu_item_id, quantity, special_instructions) VALUES (?, ?, ?, ?)',
@@ -62,6 +66,7 @@ exports.createOrder = async (req, res) => {
       message: 'Order created successfully',
       order_id: orderId,
       total: total,
+      estimated_time: estimatedMinutes,
       payment_status: payment_confirmed ? 'paid' : 'pending'
     });
     
@@ -154,6 +159,14 @@ exports.updateOrderStatus = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
     
+    // If order is completed, record actual ready time
+    if (status === 'completed') {
+      await db.query(
+        'UPDATE orders SET actual_ready_time = NOW() WHERE id = ?',
+        [req.params.id]
+      );
+    }
+    
     res.json({
       success: true,
       message: `Order status updated to ${status}`
@@ -172,12 +185,20 @@ exports.createOrderFromPayment = async (paymentData) => {
     const connection = await db.getConnection();
     await connection.beginTransaction();
     
+    // Get AI estimated time for this order
+    const items = cart.map(item => ({
+      menu_item_id: item.id,
+      quantity: item.quantity
+    }));
+    const estimation = await aiAnalyticsService.estimatePreparationTime(items);
+    const estimatedMinutes = estimation.estimated_minutes;
+    
     // Create order with payment confirmed
     const [orderResult] = await connection.query(
       `INSERT INTO orders 
-       (table_number, customer_name, customer_email, customer_phone, total_price, payment_status, payment_method, payment_id) 
-       VALUES (?, ?, ?, ?, ?, 'paid', 'toyyibpay', ?)`,
-      ['Takeaway', customer_name, customer_email, customer_phone, amount, transaction_id]
+       (table_number, customer_name, customer_email, customer_phone, total_price, payment_status, payment_method, payment_id, status, estimated_time) 
+       VALUES (?, ?, ?, ?, ?, 'paid', 'toyyibpay', ?, 'pending', ?)`,
+      ['Takeaway', customer_name, customer_email, customer_phone, amount, transaction_id, estimatedMinutes]
     );
     
     const orderId = orderResult.insertId;
@@ -193,8 +214,8 @@ exports.createOrderFromPayment = async (paymentData) => {
     await connection.commit();
     connection.release();
     
-    console.log(`✅ Order #${orderId} created from payment callback`);
-    return { success: true, order_id: orderId };
+    console.log(`✅ Order #${orderId} created from payment callback with estimated time: ${estimatedMinutes} min`);
+    return { success: true, order_id: orderId, estimated_time: estimatedMinutes };
     
   } catch (error) {
     console.error('❌ Failed to create order from payment:', error);
@@ -202,7 +223,7 @@ exports.createOrderFromPayment = async (paymentData) => {
   }
 };
 
-// Track order by ID (for customers)
+// Track order by ID (for customers) - INCLUDES ESTIMATED TIME
 exports.trackOrder = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -234,6 +255,15 @@ exports.trackOrder = async (req, res) => {
       WHERE oi.order_id = ?
     `, [orderId]);
     
+    // Calculate remaining time based on order age and estimated time
+    let remainingMinutes = null;
+    if (order.estimated_time) {
+      const createdAt = new Date(order.created_at);
+      const now = new Date();
+      const minutesPassed = Math.floor((now - createdAt) / 60000);
+      remainingMinutes = Math.max(0, order.estimated_time - minutesPassed);
+    }
+    
     // Format response for customer
     res.json({
       success: true,
@@ -244,6 +274,8 @@ exports.trackOrder = async (req, res) => {
         total_price: order.total_price,
         status: order.status,
         payment_status: order.payment_status,
+        estimated_time: order.estimated_time,
+        remaining_minutes: remainingMinutes,
         items: itemRows.map(item => ({
           name: item.name,
           quantity: item.quantity,
