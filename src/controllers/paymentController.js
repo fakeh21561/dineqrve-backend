@@ -95,7 +95,7 @@ const handleToyyibPayReturn = async (req, res) => {
         
         console.log('🔄 Payment return:', { billcode, order_id, status_id });
 
-        const frontendUrl = 'http://localhost:5500';
+        const frontendUrl = 'https://dineqrve-website.web.app';
 
         // If payment successful, create the order NOW
         if (status_id === '1') {
@@ -200,7 +200,7 @@ const handleToyyibPayReturn = async (req, res) => {
 
     } catch (error) {
         console.error('❌ Return error:', error);
-        res.redirect('http://localhost:5500/payment-failed.html');
+        res.redirect('https://dineqrve-website.web.app/payment-failed.html');
     }
 };
 
