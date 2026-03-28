@@ -51,7 +51,7 @@ const uploadImage = async (req, res) => {
         }
 
         try {
-            const imageUrl = `http://localhost:5000/uploads/${req.file.filename}`;
+            const imageUrl = `https://web-production-4c9c0.up.railway.app/uploads/${req.file.filename}`;
             
             if (req.body.item_id) {
                 await db.query(
