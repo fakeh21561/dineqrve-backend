@@ -27,6 +27,7 @@ const aiRoutes = require('./routes/aiRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const testRoutes = require('./routes/testRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
+const aiAnalyticsRoutes = require('./routes/aiAnalyticsRoutes');
 
 
 // Initialize Express app
@@ -57,6 +58,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/api/chat', chatRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/test', testRoutes);
+app.use('/api/ai-analytics', aiAnalyticsRoutes);
 
 
 
