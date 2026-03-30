@@ -1,9 +1,9 @@
 const db = require('../config/db');
 const aiAnalyticsService = require('../services/aiAnalyticsService');
 
-// Create new order - NOW WITH PAYMENT CHECK
+// Create new order - NOW WITH PAYMENT CHECK & ORDER TYPE
 exports.createOrder = async (req, res) => {
-  const { table_number, customer_name, items, payment_method, payment_confirmed } = req.body;
+  const { table_number, customer_name, items, payment_method, payment_confirmed, order_type } = req.body;
   
   let connection;
   try {
@@ -33,23 +33,27 @@ exports.createOrder = async (req, res) => {
     const estimation = await aiAnalyticsService.estimatePreparationTime(items);
     const estimatedMinutes = estimation.estimated_minutes;
 
-    // 3. Create order with payment status AND estimated time
+    // 3. Set table number based on order type
+    const finalTableNumber = order_type === 'takeaway' ? 'Takeaway' : (table_number || 'Takeaway');
+
+    // 4. Create order with payment status, estimated time, AND order_type
     const [orderResult] = await connection.query(
       `INSERT INTO orders 
-       (table_number, customer_name, total_price, payment_status, payment_method, status, estimated_time) 
-       VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+       (table_number, customer_name, total_price, payment_status, payment_method, status, estimated_time, order_type) 
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
       [
-        table_number, 
+        finalTableNumber, 
         customer_name, 
         total, 
         payment_confirmed ? 'paid' : 'pending',
         payment_method || 'unknown',
-        estimatedMinutes
+        estimatedMinutes,
+        order_type || 'dine_in'  // Default to dine_in if not provided
       ]
     );
     const orderId = orderResult.insertId;
     
-    // 4. Add order items
+    // 5. Add order items
     for (const item of items) {
       await connection.query(
         'INSERT INTO order_items (order_id, menu_item_id, quantity, special_instructions) VALUES (?, ?, ?, ?)',
@@ -67,7 +71,8 @@ exports.createOrder = async (req, res) => {
       order_id: orderId,
       total: total,
       estimated_time: estimatedMinutes,
-      payment_status: payment_confirmed ? 'paid' : 'pending'
+      payment_status: payment_confirmed ? 'paid' : 'pending',
+      order_type: order_type || 'dine_in'  // Return order type in response
     });
     
   } catch (error) {
