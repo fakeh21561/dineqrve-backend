@@ -18,10 +18,8 @@ class ToyyibPayService {
             
         console.log(`💳 ToyyibPay initialized (${this.isSandbox ? 'SANDBOX' : 'PRODUCTION'} mode)`);
         
-        // Store processed callbacks to prevent duplicates
         this.processedCallbacks = new Set();
         
-        // Create log file if it doesn't exist
         try {
             fs.accessSync('callbacks.log');
         } catch {
@@ -87,24 +85,22 @@ class ToyyibPayService {
                     const billCode = result.BillCode;
                     const paymentUrl = `${this.baseUrl}/${billCode}`;
                     
-                    // Check if this bill code already exists
                     const [existing] = await db.query(
                         'SELECT id FROM temp_payments WHERE bill_code = ?',
                         [billCode]
                     );
                     
                     if (existing.length === 0) {
-                        // Safely store cart data as JSON
                         let cartData = [];
                         if (Array.isArray(cart)) {
                             cartData = cart;
                         }
                         
-                        // STORE IN TEMP PAYMENTS ONLY
+                        // FIXED: Store order_type and table_number in temp_payments
                         await db.query(
                             `INSERT INTO temp_payments
-                             (temp_ref, bill_code, customer_name, customer_email, customer_phone, amount, cart_data, status)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+                             (temp_ref, bill_code, customer_name, customer_email, customer_phone, amount, cart_data, order_type, table_number, status)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
                             [
                                 order_id,
                                 billCode,
@@ -112,11 +108,15 @@ class ToyyibPayService {
                                 customer_email,
                                 customer_phone,
                                 amount / 100,
-                                JSON.stringify(cartData)
+                                JSON.stringify(cartData),
+                                order_type || 'dine_in',
+                                table_number || 'Takeaway'
                             ]
                         );
 
                         console.log(`✅ Temp payment stored with bill code: ${billCode}`);
+                        console.log(`   Order type: ${order_type || 'dine_in'}`);
+                        console.log(`   Table: ${table_number || 'Takeaway'}`);
                     } else {
                         console.log(`⚠️ Bill code ${billCode} already exists, skipping duplicate`);
                     }
@@ -143,13 +143,10 @@ class ToyyibPayService {
     }
 
     async handleCallback(callbackData) {
-        // Log EVERYTHING for debugging
         console.log('📞 ===== TOYYIBPAY CALLBACK RECEIVED =====');
         console.log('Timestamp:', new Date().toISOString());
         console.log('Raw data:', callbackData);
-        console.log('✅ Order created with type:', payment.order_type);
         
-        // Write to log file
         const logEntry = `\n[${new Date().toISOString()}] ${JSON.stringify(callbackData)}`;
         fs.appendFileSync('callbacks.log', logEntry);
 
@@ -162,7 +159,6 @@ class ToyyibPayService {
                 paid_at
             } = callbackData;
 
-            // CHECK FOR DUPLICATE CALLBACK
             const callbackKey = `${billcode}_${status_id}_${transaction_id}`;
             
             if (this.processedCallbacks.has(callbackKey)) {
@@ -172,12 +168,10 @@ class ToyyibPayService {
             
             this.processedCallbacks.add(callbackKey);
             
-            // Clean up old keys after 1 hour
             setTimeout(() => {
                 this.processedCallbacks.delete(callbackKey);
             }, 60 * 60 * 1000);
 
-            // Find the temp payment
             const [tempPayment] = await db.query(
                 'SELECT * FROM temp_payments WHERE bill_code = ?',
                 [billcode]
@@ -190,17 +184,14 @@ class ToyyibPayService {
 
             const payment = tempPayment[0];
 
-            // Check if this payment was already processed
             if (payment.status === 'completed' || payment.status === 'failed') {
                 console.log(`⚠️ Payment ${billcode} already processed with status: ${payment.status}`);
                 return { success: true, status: payment.status };
             }
 
-            // ===== FIXED: Skip verification for sandbox =====
             if (status_id === '1') {
                 console.log('✅ Payment successful! Creating order from callback...');
                 
-                // Parse cart data safely
                 let cart = [];
                 try {
                     if (payment.cart_data) {
@@ -210,54 +201,49 @@ class ToyyibPayService {
                             cart = payment.cart_data;
                         }
                     }
-                    if (!Array.isArray(cart)) {
-                        cart = [];
-                    }
+                    if (!Array.isArray(cart)) cart = [];
                 } catch (e) {
-                    console.log('⚠️ Error parsing cart data, using empty array:', e.message);
+                    console.log('⚠️ Error parsing cart data:', e.message);
                     cart = [];
                 }
 
-                // Check if order already exists
                 const [existingOrder] = await db.query(
                     'SELECT id FROM orders WHERE payment_id = ?',
                     [billcode]
                 );
 
                 if (existingOrder.length === 0) {
-                    // Create the order
+                    // FIXED: Correct order of columns in INSERT
                     const [orderResult] = await db.query(
                         `INSERT INTO orders
-                         (table_number, customer_name, customer_email, customer_phone, total_price, status, payment_status, payment_method, payment_id)
-                         VALUES (?, ?, ?, ?, ?, 'pending', 'paid', 'toyyibpay', ?)`,
+                         (table_number, customer_name, customer_email, customer_phone, total_price, order_type, status, payment_status, payment_method, payment_id)
+                         VALUES (?, ?, ?, ?, ?, ?, 'pending', 'paid', 'toyyibpay', ?)`,
                         [
-                            'Takeaway',
                             payment.table_number || 'Takeaway',
                             payment.customer_name,
                             payment.customer_email,
                             payment.customer_phone,
                             payment.amount,
-                            payment.order_type || 'dine_in',  // Make sure this is used
+                            payment.order_type || 'dine_in',
                             transaction_id || ('TXN' + Date.now())
                         ]
                     );
                     
                     const orderId = orderResult.insertId;
                     
-                    // Add order items
+                    // Add order items with special instructions
                     if (cart.length > 0) {
                         for (const item of cart) {
-                            if (item.id && item.quantity && item.price) {
+                            if (item.id && item.quantity) {
                                 await db.query(
-                                    `INSERT INTO order_items (order_id, menu_item_id, quantity, price)
-                                     VALUES (?, ?, ?, ?)`,
-                                    [orderId, item.id, item.quantity, item.price]
+                                    `INSERT INTO order_items (order_id, menu_item_id, quantity, price, special_instructions)
+                                     VALUES (?, ?, ?, ?, ?)`,
+                                    [orderId, item.id, item.quantity, item.price, item.instructions || '']
                                 );
                             }
                         }
                     }
                     
-                    // Insert into payments table
                     await db.query(
                         `INSERT INTO payments
                          (order_id, payment_method, amount, payment_status, transaction_id, bill_code)
@@ -265,24 +251,21 @@ class ToyyibPayService {
                         [orderId, payment.amount, transaction_id || ('TXN' + Date.now()), billcode]
                     );
                     
-                    // Update temp payment status
                     await db.query(
                         'UPDATE temp_payments SET status = ? WHERE id = ?',
                         ['completed', payment.id]
                     );
                     
-                    console.log(`✅ Order #${orderId} created from callback!`);
+                    console.log(`✅ Order #${orderId} created with type: ${payment.order_type || 'dine_in'}`);
+                    console.log(`   Items count: ${cart.length}`);
                 } else {
                     console.log(`⚠️ Order already exists for bill ${billcode}`);
-                    
-                    // Still update temp payment status
                     await db.query(
                         'UPDATE temp_payments SET status = ? WHERE id = ?',
                         ['completed', payment.id]
                     );
                 }
             } else {
-                // Payment failed
                 console.log(`❌ Payment failed with status_id: ${status_id}`);
                 await db.query(
                     'UPDATE temp_payments SET status = ? WHERE id = ?',

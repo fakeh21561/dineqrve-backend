@@ -98,18 +98,31 @@ exports.createOrder = async (req, res) => {
 };
 
 // Get all orders (for management)
+// Get all orders with items
 exports.getAllOrders = async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT o.*, 
-             GROUP_CONCAT(mi.name) as items,
-             COUNT(oi.id) as item_count
+             COUNT(DISTINCT oi.id) as item_count
       FROM orders o
       LEFT JOIN order_items oi ON o.id = oi.order_id
-      LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id
       GROUP BY o.id
       ORDER BY o.created_at DESC
     `);
+    
+    // For each order, get its items
+    for (let order of rows) {
+      const [items] = await db.query(`
+        SELECT 
+          oi.*,
+          mi.name,
+          mi.price
+        FROM order_items oi
+        JOIN menu_items mi ON oi.menu_item_id = mi.id
+        WHERE oi.order_id = ?
+      `, [order.id]);
+      order.items = items;
+    }
     
     res.json({
       success: true,
