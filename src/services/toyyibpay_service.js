@@ -228,36 +228,40 @@ class ToyyibPayService {
                     // CREATE ORDER WITH BOTH TABLE NUMBER AND ORDER TYPE
                     const [orderResult] = await db.query(
                         `INSERT INTO orders
-                         (table_number, customer_name, customer_email, customer_phone, total_price, order_type, status, payment_status, payment_method, payment_id)
-                         VALUES (?, ?, ?, ?, ?, ?, 'pending', 'paid', 'toyyibpay', ?)`,
+                        (table_number, customer_name, customer_email, customer_phone, total_price, order_type, status, payment_status, payment_method, payment_id)
+                        VALUES (?, ?, ?, ?, ?, ?, 'pending', 'paid', 'toyyibpay', ?)`,
                         [
-                            payment.table_number || 'A1',           // ALWAYS store table number
+                            payment.table_number || 'A1',
                             payment.customer_name,
                             payment.customer_email,
                             payment.customer_phone,
                             payment.amount,
-                            payment.order_type || 'dine_in',        // Store order type (dine_in/takeaway)
+                            payment.order_type || 'dine_in',
                             transaction_id || ('TXN' + Date.now())
                         ]
                     );
-                    
+
                     const orderId = orderResult.insertId;
-                    console.log(`✅ Created Order #${orderId}: ${payment.order_type || 'dine_in'} at table ${payment.table_number || 'A1'}`);
-                    
-                    // Add order items with special instructions
+
+                    // ========== FIXED: Add order items WITH instructions ==========
+                    console.log('📦 Adding items to order with instructions:', JSON.stringify(cart, null, 2));
+
                     if (cart.length > 0) {
                         for (const item of cart) {
-                            if (item.id && item.quantity) {
-                                await db.query(
-                                    `INSERT INTO order_items (order_id, menu_item_id, quantity, price, special_instructions)
-                                     VALUES (?, ?, ?, ?, ?)`,
-                                    [orderId, item.id, item.quantity, item.price, item.instructions || '']
-                                );
-                                if (item.instructions) {
-                                    console.log(`   Item: ${item.name} - Instructions: ${item.instructions}`);
-                                }
-                            }
+                            // Get instructions from the item (try different field names)
+                            const instructions = item.instructions || item.specialInstructions || item.special_instructions || '';
+                            
+                            console.log(`📝 ${item.name} x${item.quantity} - Instructions: "${instructions}"`);
+                            
+                            await db.query(
+                                `INSERT INTO order_items (order_id, menu_item_id, quantity, price, special_instructions)
+                                VALUES (?, ?, ?, ?, ?)`,
+                                [orderId, item.id, item.quantity, item.price, instructions]
+                            );
                         }
+                        console.log(`✅ Added ${cart.length} items to order #${orderId}`);
+                    } else {
+                        console.log('⚠️ No items in cart');
                     }
                     
                     await db.query(
