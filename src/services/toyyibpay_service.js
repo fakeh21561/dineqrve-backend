@@ -219,6 +219,7 @@ async handleCallback(callbackData) {
             console.log('✅ Payment successful! Creating order...');
             
             // ===== PARSE CART DATA WITH INSTRUCTIONS =====
+// Parse cart data with instructions
             let cart = [];
             try {
                 if (payment.cart_data) {
@@ -230,7 +231,9 @@ async handleCallback(callbackData) {
                 }
                 if (!Array.isArray(cart)) cart = [];
                 
-                console.log('📦 CART FROM TEMP_PAYMENTS:', JSON.stringify(cart, null, 2));
+                console.log('📦 CART DATA:', JSON.stringify(cart, null, 2));
+                console.log('📦 INSTRUCTIONS:', cart.map(i => ({ name: i.name, instructions: i.instructions })));
+                
             } catch (e) {
                 console.log('⚠️ Error parsing cart data:', e.message);
                 cart = [];
@@ -243,11 +246,11 @@ async handleCallback(callbackData) {
             );
 
             if (existingOrder.length === 0) {
-                // ===== CREATE THE ORDER =====
+                // Create the order
                 const [orderResult] = await db.query(
                     `INSERT INTO orders
-                     (table_number, customer_name, customer_email, customer_phone, total_price, order_type, status, payment_status, payment_method, payment_id)
-                     VALUES (?, ?, ?, ?, ?, ?, 'pending', 'paid', 'toyyibpay', ?)`,
+                    (table_number, customer_name, customer_email, customer_phone, total_price, order_type, status, payment_status, payment_method, payment_id)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', 'paid', 'toyyibpay', ?)`,
                     [
                         payment.table_number || 'A1',
                         payment.customer_name,
@@ -262,38 +265,37 @@ async handleCallback(callbackData) {
                 const orderId = orderResult.insertId;
                 console.log(`✅ Order #${orderId} created`);
                 
-                // ===== ADD ORDER ITEMS WITH INSTRUCTIONS =====
+                // Add order items with instructions
                 if (cart.length > 0) {
                     for (const item of cart) {
                         const instructions = item.instructions || '';
                         
-                        console.log(`📝 Adding: ${item.name} x${item.quantity} - Instructions: "${instructions}"`);
+                        console.log(`📝 Item: ${item.name} x${item.quantity} - Instructions: "${instructions}"`);
                         
                         await db.query(
                             `INSERT INTO order_items (order_id, menu_item_id, quantity, price, special_instructions)
-                             VALUES (?, ?, ?, ?, ?)`,
+                            VALUES (?, ?, ?, ?, ?)`,
                             [orderId, item.id, item.quantity, item.price, instructions]
                         );
                     }
                     console.log(`✅ Added ${cart.length} items to order #${orderId}`);
                 }
                 
-                // ===== ADD PAYMENT RECORD =====
+                // Add payment record
                 await db.query(
                     `INSERT INTO payments
-                     (order_id, payment_method, amount, payment_status, transaction_id, bill_code)
-                     VALUES (?, 'toyyibpay', ?, 'success', ?, ?)`,
+                    (order_id, payment_method, amount, payment_status, transaction_id, bill_code)
+                    VALUES (?, 'toyyibpay', ?, 'success', ?, ?)`,
                     [orderId, payment.amount, transaction_id || ('TXN' + Date.now()), billcode]
                 );
                 
-                // ===== UPDATE TEMP PAYMENT STATUS =====
+                // Update temp payment status
                 await db.query(
                     'UPDATE temp_payments SET status = ? WHERE id = ?',
                     ['completed', payment.id]
                 );
                 
-                console.log(`✅ Order #${orderId} completed with ${cart.length} items`);
-                
+                console.log(`✅ Order #${orderId} complete with instructions`);
             } else {
                 console.log(`⚠️ Order already exists for bill ${billcode}`);
                 await db.query(
