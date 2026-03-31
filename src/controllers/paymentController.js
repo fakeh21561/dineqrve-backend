@@ -75,10 +75,15 @@ const createToyyibPayBill = async (req, res) => {
 };
 
 // Handle ToyyibPay callback
+// Handle ToyyibPay callback
 const handleToyyibPayCallback = async (req, res) => {
     try {
+        // ToyyibPay sends data in the request body
         const callbackData = req.body;
-        console.log('📞 Payment callback received:', callbackData);
+        
+        console.log('📞 Payment callback received:');
+        console.log('Body:', callbackData);
+        console.log('Headers:', req.headers);
         
         // Process the callback
         const result = await toyyibpayService.handleCallback(callbackData);
@@ -90,18 +95,6 @@ const handleToyyibPayCallback = async (req, res) => {
         console.error('❌ Callback error:', error);
         // Still return 200 to prevent ToyyibPay from retrying
         res.status(200).send('OK');
-    }
-
-
-    // In the callback when creating order:
-
-
-    for (const item of cart) {
-        await db.query(
-            `INSERT INTO order_items (order_id, menu_item_id, quantity, price, special_instructions)
-            VALUES (?, ?, ?, ?, ?)`,
-            [orderId, item.id, item.quantity, item.price, item.instructions || '']
-        );
     }
 };
 

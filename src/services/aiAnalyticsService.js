@@ -51,7 +51,7 @@ class AIAnalyticsService {
                 // Get historical preparation time for this menu item
                 const [timeData] = await db.query(`
                     SELECT 
-                        AVG(TIMESTAMPDIFF(MINUTE, o.created_at, o.updated_at)) as avg_time
+                        AVG(TIMESTAMPDIFF(MINUTE, o.created_at, NOW())) as avg_time
                     FROM order_items oi
                     JOIN orders o ON oi.order_id = o.id
                     WHERE oi.menu_item_id = ? 

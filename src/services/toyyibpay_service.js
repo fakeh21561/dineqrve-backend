@@ -157,10 +157,17 @@ async handleCallback(callbackData) {
     console.log('Timestamp:', new Date().toISOString());
     console.log('Raw data:', callbackData);
     
+    // Write to log file
     const logEntry = `\n[${new Date().toISOString()}] ${JSON.stringify(callbackData)}`;
     fs.appendFileSync('callbacks.log', logEntry);
 
     try {
+        // Check if callbackData is empty
+        if (!callbackData || Object.keys(callbackData).length === 0) {
+            console.log('⚠️ Empty callback data received, ignoring...');
+            return { success: true, status: 'no_data' };
+        }
+        
         const {
             billcode,
             status_id,
@@ -168,6 +175,12 @@ async handleCallback(callbackData) {
             order_id,
             paid_at
         } = callbackData;
+
+        // Validate required fields
+        if (!billcode) {
+            console.log('❌ Missing billcode in callback:', callbackData);
+            return { success: false, error: 'Missing billcode' };
+        }
 
         // CHECK FOR DUPLICATE CALLBACK
         const callbackKey = `${billcode}_${status_id}_${transaction_id}`;
@@ -179,7 +192,6 @@ async handleCallback(callbackData) {
         
         this.processedCallbacks.add(callbackKey);
         
-        // Clean up old keys after 1 hour
         setTimeout(() => {
             this.processedCallbacks.delete(callbackKey);
         }, 60 * 60 * 1000);
@@ -197,7 +209,6 @@ async handleCallback(callbackData) {
 
         const payment = tempPayment[0];
 
-        // Check if this payment was already processed
         if (payment.status === 'completed' || payment.status === 'failed') {
             console.log(`⚠️ Payment ${billcode} already processed with status: ${payment.status}`);
             return { success: true, status: payment.status };
@@ -219,9 +230,7 @@ async handleCallback(callbackData) {
                 }
                 if (!Array.isArray(cart)) cart = [];
                 
-                // DEBUG: Log what we got
                 console.log('📦 CART FROM TEMP_PAYMENTS:', JSON.stringify(cart, null, 2));
-                console.log('📦 FIRST ITEM INSTRUCTIONS:', cart[0]?.instructions);
             } catch (e) {
                 console.log('⚠️ Error parsing cart data:', e.message);
                 cart = [];
@@ -252,16 +261,13 @@ async handleCallback(callbackData) {
                 
                 const orderId = orderResult.insertId;
                 console.log(`✅ Order #${orderId} created`);
-                console.log(`   Order type: ${payment.order_type || 'dine_in'}`);
-                console.log(`   Table: ${payment.table_number || 'A1'}`);
                 
                 // ===== ADD ORDER ITEMS WITH INSTRUCTIONS =====
                 if (cart.length > 0) {
                     for (const item of cart) {
-                        // Get instructions from the item
                         const instructions = item.instructions || '';
                         
-                        console.log(`📝 Adding item: ${item.name} x${item.quantity} - Instructions: "${instructions}"`);
+                        console.log(`📝 Adding: ${item.name} x${item.quantity} - Instructions: "${instructions}"`);
                         
                         await db.query(
                             `INSERT INTO order_items (order_id, menu_item_id, quantity, price, special_instructions)
@@ -270,8 +276,6 @@ async handleCallback(callbackData) {
                         );
                     }
                     console.log(`✅ Added ${cart.length} items to order #${orderId}`);
-                } else {
-                    console.log('⚠️ No items found in cart for this order!');
                 }
                 
                 // ===== ADD PAYMENT RECORD =====
@@ -288,7 +292,7 @@ async handleCallback(callbackData) {
                     ['completed', payment.id]
                 );
                 
-                console.log(`✅ Order #${orderId} completed successfully`);
+                console.log(`✅ Order #${orderId} completed with ${cart.length} items`);
                 
             } else {
                 console.log(`⚠️ Order already exists for bill ${billcode}`);
@@ -299,7 +303,6 @@ async handleCallback(callbackData) {
             }
             
         } else {
-            // Payment failed
             console.log(`❌ Payment failed with status_id: ${status_id}`);
             await db.query(
                 'UPDATE temp_payments SET status = ? WHERE id = ?',
