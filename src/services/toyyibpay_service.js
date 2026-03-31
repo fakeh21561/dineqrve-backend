@@ -38,11 +38,15 @@ class ToyyibPayService {
                 customer_phone,
                 amount,
                 description,
-                cart
+                cart,
+                order_type,
+                table_number 
             } = orderData;
 
             console.log('🧾 Creating ToyyibPay bill for temp ref:', order_id);
             console.log('💰 Amount (cents):', amount);
+            console.log('📦 Received order_type:', order_type);
+            console.log('🪑 Received table_number:', table_number);
 
             const billData = {
                 userSecretKey: this.apiKey,
@@ -143,6 +147,7 @@ class ToyyibPayService {
         console.log('📞 ===== TOYYIBPAY CALLBACK RECEIVED =====');
         console.log('Timestamp:', new Date().toISOString());
         console.log('Raw data:', callbackData);
+        console.log('✅ Order created with type:', payment.order_type);
         
         // Write to log file
         const logEntry = `\n[${new Date().toISOString()}] ${JSON.stringify(callbackData)}`;
@@ -227,10 +232,12 @@ class ToyyibPayService {
                          VALUES (?, ?, ?, ?, ?, 'pending', 'paid', 'toyyibpay', ?)`,
                         [
                             'Takeaway',
+                            payment.table_number || 'Takeaway',
                             payment.customer_name,
                             payment.customer_email,
                             payment.customer_phone,
                             payment.amount,
+                            payment.order_type || 'dine_in',  // Make sure this is used
                             transaction_id || ('TXN' + Date.now())
                         ]
                     );
