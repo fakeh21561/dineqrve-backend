@@ -27,120 +27,120 @@ class ToyyibPayService {
         }
     }
 
-    async createBill(orderData) {
-        try {
-            const {
-                order_id,
-                customer_name,
-                customer_email,
-                customer_phone,
-                amount,
-                description,
-                cart,
-                order_type,
-                table_number 
-            } = orderData;
+async createBill(orderData) {
+    try {
+        const {
+            order_id,
+            customer_name,
+            customer_email,
+            customer_phone,
+            amount,
+            description,
+            cart,
+            order_type,
+            table_number
+        } = orderData;
 
-            console.log('🧾 Creating ToyyibPay bill for temp ref:', order_id);
-            console.log('💰 Amount (cents):', amount);
-            console.log('📦 Received order_type:', order_type);
-            console.log('🪑 Received table_number:', table_number);
+        console.log('📦 Received orderData:', { order_id, order_type, table_number });
 
-            const billData = {
-                userSecretKey: this.apiKey,
-                categoryCode: this.categoryCode,
-                billName: `Order ${order_id}`,
-                billDescription: description || 'Restaurant Order',
-                billPriceSetting: '1',
-                billPayorInfo: '1',
-                billAmount: amount.toString(),
-                billReturnUrl: `https://web-production-4c9c0.up.railway.app/api/payments/toyyibpay-return`,
-                billCallbackUrl: `https://web-production-4c9c0.up.railway.app/api/payments/toyyibpay-callback`,
-                billExternalReferenceNo: order_id.toString(),
-                billTo: customer_name,
-                billEmail: customer_email || 'customer@email.com',
-                billPhone: customer_phone || '0123456789',
-                billSplitPayment: '0',
-                billSplitPaymentArgs: '',
-                billPaymentChannel: '0',
-                billContentEmail: 'Thank you for your payment!',
-                billChargeToCustomer: '1',
-                billExpiryDays: '5'
-            };
+        // Use defaults if not provided
+        const finalOrderType = order_type || 'dine_in';
+        const finalTableNumber = table_number || (finalOrderType === 'takeaway' ? 'Takeaway' : 'A1');
 
-            const response = await axios.post(
-                `${this.baseUrl}/index.php/api/createBill`,
-                new URLSearchParams(billData).toString(),
-                {
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    }
+        console.log('🧾 Creating ToyyibPay bill for temp ref:', order_id);
+        console.log('💰 Amount (cents):', amount);
+        console.log('📦 Order type:', finalOrderType);
+        console.log('🪑 Table:', finalTableNumber);
+
+        const billData = {
+            userSecretKey: this.apiKey,
+            categoryCode: this.categoryCode,
+            billName: `Order ${order_id}`,
+            billDescription: description || 'Restaurant Order',
+            billPriceSetting: '1',
+            billPayorInfo: '1',
+            billAmount: amount.toString(),
+            billReturnUrl: `https://web-production-4c9c0.up.railway.app/api/payments/toyyibpay-return`,
+            billCallbackUrl: `https://web-production-4c9c0.up.railway.app/api/payments/toyyibpay-callback`,
+            billExternalReferenceNo: order_id.toString(),
+            billTo: customer_name,
+            billEmail: customer_email || 'customer@email.com',
+            billPhone: customer_phone || '0123456789',
+            billSplitPayment: '0',
+            billSplitPaymentArgs: '',
+            billPaymentChannel: '0',
+            billContentEmail: 'Thank you for your payment!',
+            billChargeToCustomer: '1',
+            billExpiryDays: '5'
+        };
+
+        const response = await axios.post(
+            `${this.baseUrl}/index.php/api/createBill`,
+            new URLSearchParams(billData).toString(),
+            {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
                 }
-            );
-
-            if (response.data && Array.isArray(response.data) && response.data[0]) {
-                const result = response.data[0];
-                
-                if (result.BillCode) {
-                    const billCode = result.BillCode;
-                    const paymentUrl = `${this.baseUrl}/${billCode}`;
-                    
-                    const [existing] = await db.query(
-                        'SELECT id FROM temp_payments WHERE bill_code = ?',
-                        [billCode]
-                    );
-                    
-                    if (existing.length === 0) {
-                        let cartData = [];
-                        if (Array.isArray(cart)) {
-                            cartData = cart;
-                        }
-                        
-                        // FIXED: Store order_type and table_number in temp_payments
-                        await db.query(
-                            `INSERT INTO temp_payments
-                             (temp_ref, bill_code, customer_name, customer_email, customer_phone, amount, cart_data, order_type, table_number, status)
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-                            [
-                                order_id,
-                                billCode,
-                                customer_name,
-                                customer_email,
-                                customer_phone,
-                                amount / 100,
-                                JSON.stringify(cartData),
-                                order_type || 'dine_in',
-                                table_number || 'Takeaway'
-                            ]
-                        );
-
-                        console.log(`✅ Temp payment stored with bill code: ${billCode}`);
-                        console.log(`   Order type: ${order_type || 'dine_in'}`);
-                        console.log(`   Table: ${table_number || 'Takeaway'}`);
-                    } else {
-                        console.log(`⚠️ Bill code ${billCode} already exists, skipping duplicate`);
-                    }
-
-                    return {
-                        success: true,
-                        billCode: billCode,
-                        paymentUrl: paymentUrl,
-                        temp_ref: order_id
-                    };
-                } else {
-                    throw new Error(result.msg || 'Failed to create bill');
-                }
-            } else {
-                throw new Error('Invalid response from ToyyibPay');
             }
-        } catch (error) {
-            console.error('❌ ToyyibPay create bill error:', error.response?.data || error.message);
-            return {
-                success: false,
-                error: error.response?.data?.msg || error.message
-            };
+        );
+
+        if (response.data && Array.isArray(response.data) && response.data[0]) {
+            const result = response.data[0];
+            
+            if (result.BillCode) {
+                const billCode = result.BillCode;
+                const paymentUrl = `${this.baseUrl}/${billCode}`;
+                
+                const [existing] = await db.query(
+                    'SELECT id FROM temp_payments WHERE bill_code = ?',
+                    [billCode]
+                );
+                
+                if (existing.length === 0) {
+                    await db.query(
+                        `INSERT INTO temp_payments
+                         (temp_ref, bill_code, customer_name, customer_email, customer_phone, amount, cart_data, order_type, table_number, status)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+                        [
+                            order_id,
+                            billCode,
+                            customer_name,
+                            customer_email,
+                            customer_phone,
+                            amount / 100,
+                            JSON.stringify(cart || []),
+                            finalOrderType,
+                            finalTableNumber
+                        ]
+                    );
+
+                    console.log(`✅ Temp payment stored with bill code: ${billCode}`);
+                    console.log(`   Order type: ${finalOrderType}`);
+                    console.log(`   Table: ${finalTableNumber}`);
+                } else {
+                    console.log(`⚠️ Bill code ${billCode} already exists, skipping duplicate`);
+                }
+
+                return {
+                    success: true,
+                    billCode: billCode,
+                    paymentUrl: paymentUrl,
+                    temp_ref: order_id
+                };
+            } else {
+                throw new Error(result.msg || 'Failed to create bill');
+            }
+        } else {
+            throw new Error('Invalid response from ToyyibPay');
         }
+    } catch (error) {
+        console.error('❌ ToyyibPay create bill error:', error.response?.data || error.message);
+        return {
+            success: false,
+            error: error.response?.data?.msg || error.message
+        };
     }
+}
 
     async handleCallback(callbackData) {
         console.log('📞 ===== TOYYIBPAY CALLBACK RECEIVED =====');
