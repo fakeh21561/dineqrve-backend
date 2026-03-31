@@ -50,6 +50,15 @@ class ToyyibPayService {
             console.log('📦 Order type:', finalOrderType);
             console.log('🪑 Table:', finalTableNumber);
 
+            // Prepare cart data with instructions
+            const cartWithInstructions = (cart || []).map(item => ({
+                id: item.id,
+                name: item.name,
+                price: item.price,
+                quantity: item.quantity,
+                instructions: item.instructions || ''
+            }));
+
             const billData = {
                 userSecretKey: this.apiKey,
                 categoryCode: this.categoryCode,
@@ -96,7 +105,7 @@ class ToyyibPayService {
                     );
                     
                     if (existing.length === 0) {
-                        // SINGLE INSERT - only once!
+                        // SINGLE INSERT - store cart with instructions
                         await db.query(
                             `INSERT INTO temp_payments
                              (temp_ref, bill_code, customer_name, customer_email, customer_phone, amount, cart_data, order_type, table_number, status)
@@ -108,7 +117,7 @@ class ToyyibPayService {
                                 customer_email,
                                 customer_phone,
                                 amount / 100,
-                                JSON.stringify(cart || []),
+                                JSON.stringify(cartWithInstructions),
                                 finalOrderType,
                                 finalTableNumber
                             ]
@@ -117,6 +126,7 @@ class ToyyibPayService {
                         console.log(`✅ Temp payment stored with bill code: ${billCode}`);
                         console.log(`   Order type: ${finalOrderType}`);
                         console.log(`   Table: ${finalTableNumber}`);
+                        console.log(`   Items with instructions: ${cartWithInstructions.length}`);
                     } else {
                         console.log(`⚠️ Bill code ${billCode} already exists, skipping duplicate`);
                     }
