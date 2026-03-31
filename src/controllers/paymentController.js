@@ -2,11 +2,15 @@ const db = require('../config/db');
 const toyyibpayService = require('../services/toyyibpay_service');
 
 // Create ToyyibPay bill (NO ORDER CREATED)
+// Create ToyyibPay bill (NO ORDER CREATED)
 const createToyyibPayBill = async (req, res) => {
     try {
-        const { order_id, customer_name, customer_email, customer_phone, amount, cart } = req.body;
+        // IMPORTANT: Add order_type and table_number here
+        const { order_id, customer_name, customer_email, customer_phone, amount, cart, order_type, table_number } = req.body;
         
         console.log('🧾 Creating ToyyibPay bill for temp ref:', order_id);
+        console.log('📦 Received order_type:', order_type);
+        console.log('🪑 Received table_number:', table_number);
 
         if (!order_id || !customer_name || !amount) {
             return res.status(400).json({
@@ -23,7 +27,6 @@ const createToyyibPayBill = async (req, res) => {
 
         if (existing.length > 0) {
             console.log(`⚠️ Pending payment already exists for temp ref: ${order_id}`);
-            // If there's an existing bill code, return it
             if (existing[0].bill_code) {
                 return res.json({
                     success: true,
@@ -43,7 +46,9 @@ const createToyyibPayBill = async (req, res) => {
             customer_phone: customer_phone,
             amount: amountInCents,
             description: `Payment for Order`,
-            cart: cart || []
+            cart: cart || [],
+            order_type: order_type,      // ADD THIS
+            table_number: table_number    // ADD THIS
         });
 
         if (result.success) {
@@ -89,7 +94,7 @@ const handleToyyibPayCallback = async (req, res) => {
 
 
     // In the callback when creating order:
-    const cart = JSON.parse(payment.cart_data || '[]');
+
 
     for (const item of cart) {
         await db.query(
@@ -149,22 +154,24 @@ const handleToyyibPayReturn = async (req, res) => {
                         cart = [];
                     }
                     
-                    // Create the order
+                    // Create the order WITH order_type and table_number
                     const [orderResult] = await db.query(
                         `INSERT INTO orders
-                         (table_number, customer_name, customer_email, customer_phone, total_price, status, payment_status, payment_method, payment_id)
-                         VALUES (?, ?, ?, ?, ?, 'pending', 'paid', 'toyyibpay', ?)`,
+                        (table_number, customer_name, customer_email, customer_phone, total_price, order_type, status, payment_status, payment_method, payment_id)
+                        VALUES (?, ?, ?, ?, ?, ?, 'pending', 'paid', 'toyyibpay', ?)`,
                         [
-                            'Takeaway',
+                            payment.table_number || 'Takeaway',     // Use stored table_number
                             payment.customer_name,
                             payment.customer_email,
                             payment.customer_phone,
                             payment.amount,
+                            payment.order_type || 'dine_in',        // Use stored order_type
                             billcode
                         ]
                     );
                     
                     orderId = orderResult.insertId;
+                    
                     
                     // Add order items
                     if (cart.length > 0) {
