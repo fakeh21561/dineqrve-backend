@@ -152,156 +152,171 @@ class ToyyibPayService {
         }
     }
 
-    async handleCallback(callbackData) {
-        console.log('📞 ===== TOYYIBPAY CALLBACK RECEIVED =====');
-        console.log('Timestamp:', new Date().toISOString());
-        console.log('Raw data:', callbackData);
+async handleCallback(callbackData) {
+    console.log('📞 ===== TOYYIBPAY CALLBACK RECEIVED =====');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Raw data:', callbackData);
+    
+    const logEntry = `\n[${new Date().toISOString()}] ${JSON.stringify(callbackData)}`;
+    fs.appendFileSync('callbacks.log', logEntry);
+
+    try {
+        const {
+            billcode,
+            status_id,
+            transaction_id,
+            order_id,
+            paid_at
+        } = callbackData;
+
+        // CHECK FOR DUPLICATE CALLBACK
+        const callbackKey = `${billcode}_${status_id}_${transaction_id}`;
         
-        const logEntry = `\n[${new Date().toISOString()}] ${JSON.stringify(callbackData)}`;
-        fs.appendFileSync('callbacks.log', logEntry);
+        if (this.processedCallbacks.has(callbackKey)) {
+            console.log(`⚠️ Duplicate callback detected for ${callbackKey}, skipping...`);
+            return { success: true, status: 'already_processed' };
+        }
+        
+        this.processedCallbacks.add(callbackKey);
+        
+        // Clean up old keys after 1 hour
+        setTimeout(() => {
+            this.processedCallbacks.delete(callbackKey);
+        }, 60 * 60 * 1000);
 
-        try {
-            const {
-                billcode,
-                status_id,
-                transaction_id,
-                order_id,
-                paid_at
-            } = callbackData;
+        // Find the temp payment
+        const [tempPayment] = await db.query(
+            'SELECT * FROM temp_payments WHERE bill_code = ?',
+            [billcode]
+        );
 
-            const callbackKey = `${billcode}_${status_id}_${transaction_id}`;
+        if (tempPayment.length === 0) {
+            console.log('❌ No temp payment found for bill code:', billcode);
+            return { success: false, error: 'Temp payment not found' };
+        }
+
+        const payment = tempPayment[0];
+
+        // Check if this payment was already processed
+        if (payment.status === 'completed' || payment.status === 'failed') {
+            console.log(`⚠️ Payment ${billcode} already processed with status: ${payment.status}`);
+            return { success: true, status: payment.status };
+        }
+
+        // ===== PAYMENT SUCCESSFUL =====
+        if (status_id === '1') {
+            console.log('✅ Payment successful! Creating order...');
             
-            if (this.processedCallbacks.has(callbackKey)) {
-                console.log(`⚠️ Duplicate callback detected for ${callbackKey}, skipping...`);
-                return { success: true, status: 'already_processed' };
+            // ===== PARSE CART DATA WITH INSTRUCTIONS =====
+            let cart = [];
+            try {
+                if (payment.cart_data) {
+                    if (typeof payment.cart_data === 'string') {
+                        cart = JSON.parse(payment.cart_data);
+                    } else if (typeof payment.cart_data === 'object') {
+                        cart = payment.cart_data;
+                    }
+                }
+                if (!Array.isArray(cart)) cart = [];
+                
+                // DEBUG: Log what we got
+                console.log('📦 CART FROM TEMP_PAYMENTS:', JSON.stringify(cart, null, 2));
+                console.log('📦 FIRST ITEM INSTRUCTIONS:', cart[0]?.instructions);
+            } catch (e) {
+                console.log('⚠️ Error parsing cart data:', e.message);
+                cart = [];
             }
-            
-            this.processedCallbacks.add(callbackKey);
-            
-            setTimeout(() => {
-                this.processedCallbacks.delete(callbackKey);
-            }, 60 * 60 * 1000);
 
-            const [tempPayment] = await db.query(
-                'SELECT * FROM temp_payments WHERE bill_code = ?',
+            // Check if order already exists
+            const [existingOrder] = await db.query(
+                'SELECT id FROM orders WHERE payment_id = ?',
                 [billcode]
             );
 
-            if (tempPayment.length === 0) {
-                console.log('❌ No temp payment found for bill code:', billcode);
-                return { success: false, error: 'Temp payment not found' };
-            }
-
-            const payment = tempPayment[0];
-
-            if (payment.status === 'completed' || payment.status === 'failed') {
-                console.log(`⚠️ Payment ${billcode} already processed with status: ${payment.status}`);
-                return { success: true, status: payment.status };
-            }
-
-            if (status_id === '1') {
-                console.log('✅ Payment successful! Creating order from callback...');
-                console.log(`   Order type from temp: ${payment.order_type || 'dine_in'}`);
-                console.log(`   Table from temp: ${payment.table_number || 'A1'}`);
-                
-                let cart = [];
-                try {
-                    if (payment.cart_data) {
-                        if (typeof payment.cart_data === 'string') {
-                            cart = JSON.parse(payment.cart_data);
-                        } else if (typeof payment.cart_data === 'object') {
-                            cart = payment.cart_data;
-                        }
-                    }
-                    if (!Array.isArray(cart)) cart = [];
-                } catch (e) {
-                    console.log('⚠️ Error parsing cart data:', e.message);
-                    cart = [];
-                }
-
-                const [existingOrder] = await db.query(
-                    'SELECT id FROM orders WHERE payment_id = ?',
-                    [billcode]
+            if (existingOrder.length === 0) {
+                // ===== CREATE THE ORDER =====
+                const [orderResult] = await db.query(
+                    `INSERT INTO orders
+                     (table_number, customer_name, customer_email, customer_phone, total_price, order_type, status, payment_status, payment_method, payment_id)
+                     VALUES (?, ?, ?, ?, ?, ?, 'pending', 'paid', 'toyyibpay', ?)`,
+                    [
+                        payment.table_number || 'A1',
+                        payment.customer_name,
+                        payment.customer_email,
+                        payment.customer_phone,
+                        payment.amount,
+                        payment.order_type || 'dine_in',
+                        transaction_id || ('TXN' + Date.now())
+                    ]
                 );
-
-                if (existingOrder.length === 0) {
-                    // CREATE ORDER WITH BOTH TABLE NUMBER AND ORDER TYPE
-                    const [orderResult] = await db.query(
-                        `INSERT INTO orders
-                        (table_number, customer_name, customer_email, customer_phone, total_price, order_type, status, payment_status, payment_method, payment_id)
-                        VALUES (?, ?, ?, ?, ?, ?, 'pending', 'paid', 'toyyibpay', ?)`,
-                        [
-                            payment.table_number || 'A1',
-                            payment.customer_name,
-                            payment.customer_email,
-                            payment.customer_phone,
-                            payment.amount,
-                            payment.order_type || 'dine_in',
-                            transaction_id || ('TXN' + Date.now())
-                        ]
-                    );
-
-                    const orderId = orderResult.insertId;
-
-                    // ========== FIXED: Add order items WITH instructions ==========
-                    console.log('📦 Adding items to order with instructions:', JSON.stringify(cart, null, 2));
-
-                    if (cart.length > 0) {
-                        for (const item of cart) {
-                            // Get instructions from the item (try different field names)
-                            const instructions = item.instructions || item.specialInstructions || item.special_instructions || '';
-                            
-                            console.log(`📝 ${item.name} x${item.quantity} - Instructions: "${instructions}"`);
-                            
-                            await db.query(
-                                `INSERT INTO order_items (order_id, menu_item_id, quantity, price, special_instructions)
-                                VALUES (?, ?, ?, ?, ?)`,
-                                [orderId, item.id, item.quantity, item.price, instructions]
-                            );
-                        }
-                        console.log(`✅ Added ${cart.length} items to order #${orderId}`);
-                    } else {
-                        console.log('⚠️ No items in cart');
+                
+                const orderId = orderResult.insertId;
+                console.log(`✅ Order #${orderId} created`);
+                console.log(`   Order type: ${payment.order_type || 'dine_in'}`);
+                console.log(`   Table: ${payment.table_number || 'A1'}`);
+                
+                // ===== ADD ORDER ITEMS WITH INSTRUCTIONS =====
+                if (cart.length > 0) {
+                    for (const item of cart) {
+                        // Get instructions from the item
+                        const instructions = item.instructions || '';
+                        
+                        console.log(`📝 Adding item: ${item.name} x${item.quantity} - Instructions: "${instructions}"`);
+                        
+                        await db.query(
+                            `INSERT INTO order_items (order_id, menu_item_id, quantity, price, special_instructions)
+                             VALUES (?, ?, ?, ?, ?)`,
+                            [orderId, item.id, item.quantity, item.price, instructions]
+                        );
                     }
-                    
-                    await db.query(
-                        `INSERT INTO payments
-                         (order_id, payment_method, amount, payment_status, transaction_id, bill_code)
-                         VALUES (?, 'toyyibpay', ?, 'success', ?, ?)`,
-                        [orderId, payment.amount, transaction_id || ('TXN' + Date.now()), billcode]
-                    );
-                    
-                    await db.query(
-                        'UPDATE temp_payments SET status = ? WHERE id = ?',
-                        ['completed', payment.id]
-                    );
-                    
-                    console.log(`✅ Order #${orderId} complete - ${cart.length} items`);
+                    console.log(`✅ Added ${cart.length} items to order #${orderId}`);
                 } else {
-                    console.log(`⚠️ Order already exists for bill ${billcode}`);
-                    await db.query(
-                        'UPDATE temp_payments SET status = ? WHERE id = ?',
-                        ['completed', payment.id]
-                    );
+                    console.log('⚠️ No items found in cart for this order!');
                 }
-            } else {
-                console.log(`❌ Payment failed with status_id: ${status_id}`);
+                
+                // ===== ADD PAYMENT RECORD =====
+                await db.query(
+                    `INSERT INTO payments
+                     (order_id, payment_method, amount, payment_status, transaction_id, bill_code)
+                     VALUES (?, 'toyyibpay', ?, 'success', ?, ?)`,
+                    [orderId, payment.amount, transaction_id || ('TXN' + Date.now()), billcode]
+                );
+                
+                // ===== UPDATE TEMP PAYMENT STATUS =====
                 await db.query(
                     'UPDATE temp_payments SET status = ? WHERE id = ?',
-                    ['failed', payment.id]
+                    ['completed', payment.id]
+                );
+                
+                console.log(`✅ Order #${orderId} completed successfully`);
+                
+            } else {
+                console.log(`⚠️ Order already exists for bill ${billcode}`);
+                await db.query(
+                    'UPDATE temp_payments SET status = ? WHERE id = ?',
+                    ['completed', payment.id]
                 );
             }
-
-            return { success: true };
-
-        } catch (error) {
-            console.error('❌ Callback handling error:', error);
-            return {
-                success: false,
-                error: error.message
-            };
+            
+        } else {
+            // Payment failed
+            console.log(`❌ Payment failed with status_id: ${status_id}`);
+            await db.query(
+                'UPDATE temp_payments SET status = ? WHERE id = ?',
+                ['failed', payment.id]
+            );
         }
+
+        return { success: true };
+
+    } catch (error) {
+        console.error('❌ Callback handling error:', error);
+        return {
+            success: false,
+            error: error.message
+        };
     }
+}
 }
 
 module.exports = new ToyyibPayService();
