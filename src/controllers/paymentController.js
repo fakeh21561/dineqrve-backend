@@ -86,6 +86,18 @@ const handleToyyibPayCallback = async (req, res) => {
         // Still return 200 to prevent ToyyibPay from retrying
         res.status(200).send('OK');
     }
+
+
+    // In the callback when creating order:
+    const cart = JSON.parse(payment.cart_data || '[]');
+
+    for (const item of cart) {
+        await db.query(
+            `INSERT INTO order_items (order_id, menu_item_id, quantity, price, special_instructions)
+            VALUES (?, ?, ?, ?, ?)`,
+            [orderId, item.id, item.quantity, item.price, item.instructions || '']
+        );
+    }
 };
 
 // Handle ToyyibPay return (user redirect)

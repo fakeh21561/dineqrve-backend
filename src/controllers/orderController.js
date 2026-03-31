@@ -86,6 +86,15 @@ exports.createOrder = async (req, res) => {
       error: 'Failed to create order'
     });
   }
+
+  for (const item of items) {
+      await connection.query(
+          'INSERT INTO order_items (order_id, menu_item_id, quantity, special_instructions) VALUES (?, ?, ?, ?)',
+          [orderId, item.menu_item_id, item.quantity, item.special_instructions || '']
+      );
+  }
+
+
 };
 
 // Get all orders (for management)
