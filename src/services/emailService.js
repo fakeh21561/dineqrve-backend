@@ -4,20 +4,23 @@ const path = require('path');
 
 class EmailService {
     constructor() {
-        // Get email config from environment variables
         this.user = process.env.EMAIL_USER;
         this.pass = process.env.EMAIL_PASS;
-        this.from = process.env.EMAIL_FROM || 'Arbhi Catering <kl2408016617@student.uptm.edu.my>';
+        this.from = process.env.EMAIL_FROM || 'Arbhi Catering <catering@arbhi.com>';
         
         console.log('📧 Email service configured for:', this.user);
         
-        // Create transporter with your email
+        // Add timeout and better options
         this.transporter = nodemailer.createTransport({
-            service: 'gmail', // or your email service
+            service: 'gmail',
             auth: {
                 user: this.user,
                 pass: this.pass
-            }
+            },
+            timeout: 30000, // 30 seconds timeout
+            connectionTimeout: 30000,
+            greetingTimeout: 30000,
+            socketTimeout: 30000
         });
     }
 
@@ -45,6 +48,12 @@ async sendCateringConfirmation(booking, pdfPath) {
         try {
             console.log(`📧 Sending confirmation email for booking #${booking.id} to ${booking.email || booking.customer_email}`);
             console.log(`📧 Using sender: ${this.from}`);
+
+                    // Check if email exists
+            if (!booking.email && !booking.customer_email) {
+                console.log('⚠️ No email address provided, skipping email');
+                return { success: false, error: 'No email address' };
+            }
 
             // Read PDF file
             const pdfAttachment = await fs.readFile(pdfPath);
