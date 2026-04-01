@@ -220,13 +220,19 @@ const updateCateringBooking = async (req, res) => {
         const booking = check[0];
         const oldStatus = booking.status;
         
+        // ========== ADD THIS MISSING UPDATE QUERY ==========
+        await db.query(
+            'UPDATE catering_bookings SET status = ? WHERE id = ?',
+            [status, id]
+        );
+        // ==================================================
+        
+        console.log(`✅ Booking ${id} updated from ${oldStatus} to ${status}`);
         
         // Send email based on new status
- if (status === 'approved' && oldStatus !== 'approved') {
-            // Send approval email
+        if (status === 'approved' && oldStatus !== 'approved') {
             console.log(`📧 Sending APPROVAL email to ${booking.email || booking.customer_email}`);
             
-            // Make sure email service has the approval method
             if (typeof emailService.sendApprovalEmail === 'function') {
                 emailService.sendApprovalEmail(booking).catch(err => 
                     console.error('❌ Approval email error:', err)
@@ -236,10 +242,8 @@ const updateCateringBooking = async (req, res) => {
             }
             
         } else if (status === 'rejected' && oldStatus !== 'rejected') {
-            // Send rejection email
             console.log(`📧 Sending REJECTION email to ${booking.email || booking.customer_email}`);
             
-            // Make sure email service has the rejection method
             if (typeof emailService.sendRejectionEmail === 'function') {
                 emailService.sendRejectionEmail(booking).catch(err => 
                     console.error('❌ Rejection email error:', err)
