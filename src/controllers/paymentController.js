@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const toyyibpayService = require('../services/toyyibpay_service');
+const Busboy = require('busboy');
 
 // Create ToyyibPay bill (NO ORDER CREATED)
 // Create ToyyibPay bill (NO ORDER CREATED)
@@ -77,37 +78,38 @@ const createToyyibPayBill = async (req, res) => {
 // Handle ToyyibPay callback
 const handleToyyibPayCallback = async (req, res) => {
     try {
-        console.log('📞 Payment callback received:');
+        console.log('📞 Payment callback received');
         
-        let callbackData = {};
+        const busboy = Busboy({ headers: req.headers });
+        const fields = {};
         
-        // Parse from raw body
-        if (req.rawBody) {
-            console.log('Raw body:', req.rawBody);
-            const params = new URLSearchParams(req.rawBody);
-            for (const [key, value] of params) {
-                callbackData[key] = value;
+        busboy.on('field', (fieldname, val) => {
+            console.log(`📝 ${fieldname}: ${val}`);
+            fields[fieldname] = val;
+        });
+        
+        busboy.on('finish', async () => {
+            console.log('✅ Parsed all fields:', fields);
+            
+            if (fields.billcode && fields.status_id) {
+                const result = await toyyibpayService.handleCallback(fields);
+                console.log('Callback processed:', result);
+            } else {
+                console.log('⚠️ Missing required fields:', { 
+                    billcode: fields.billcode, 
+                    status_id: fields.status_id 
+                });
             }
-            console.log('Parsed callback data:', callbackData);
-        } 
-        // Fallback to regular body
-        else if (req.body && Object.keys(req.body).length > 0) {
-            callbackData = req.body;
-            console.log('Body data:', callbackData);
-        } 
-        else {
-            console.log('⚠️ No data found in callback');
-        }
+            
+            res.status(200).send('OK');
+        });
         
-        // Process callback if we have data
-        if (Object.keys(callbackData).length > 0) {
-            const result = await toyyibpayService.handleCallback(callbackData);
-            console.log('Callback processed:', result);
-        } else {
-            console.log('⚠️ Skipping callback - no data');
-        }
+        busboy.on('error', (err) => {
+            console.error('❌ Busboy error:', err);
+            res.status(200).send('OK');
+        });
         
-        res.status(200).send('OK');
+        req.pipe(busboy);
         
     } catch (error) {
         console.error('❌ Callback error:', error);
