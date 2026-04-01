@@ -56,7 +56,6 @@ class AIAnalyticsService {
                     JOIN orders o ON oi.order_id = o.id
                     WHERE oi.menu_item_id = ? 
                     AND o.status = 'completed'
-                    AND o.updated_at IS NOT NULL
                 `, [item.menu_item_id]);
                 
                 let itemTime = 5; // Default 5 minutes
