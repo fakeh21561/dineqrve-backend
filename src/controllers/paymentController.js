@@ -78,22 +78,36 @@ const createToyyibPayBill = async (req, res) => {
 // Handle ToyyibPay callback
 const handleToyyibPayCallback = async (req, res) => {
     try {
-        // ToyyibPay sends data in the request body
+        // ToyyibPay sends data as form-data, not JSON
+        // req.body is already parsed by express.urlencoded
         const callbackData = req.body;
         
         console.log('📞 Payment callback received:');
         console.log('Body:', callbackData);
-        console.log('Headers:', req.headers);
         
-        // Process the callback
-        const result = await toyyibpayService.handleCallback(callbackData);
+        // If body is empty, try to parse from raw
+        if (!callbackData || Object.keys(callbackData).length === 0) {
+            // Some webhooks send data in the raw body
+            if (req.rawBody) {
+                const parsed = new URLSearchParams(req.rawBody);
+                const data = {};
+                for (const [key, value] of parsed) {
+                    data[key] = value;
+                }
+                console.log('Parsed from raw body:', data);
+                await toyyibpayService.handleCallback(data);
+            } else {
+                console.log('No data found in callback');
+            }
+        } else {
+            await toyyibpayService.handleCallback(callbackData);
+        }
         
-        // Always return 200 OK to ToyyibPay to prevent retries
+        // Always return 200 OK to ToyyibPay
         res.status(200).send('OK');
         
     } catch (error) {
         console.error('❌ Callback error:', error);
-        // Still return 200 to prevent ToyyibPay from retrying
         res.status(200).send('OK');
     }
 };
