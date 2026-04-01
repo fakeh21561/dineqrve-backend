@@ -1,4 +1,4 @@
-// src/index.js
+// Load environment variables first
 if (process.env.NODE_ENV !== 'production') {
     require('dotenv').config();
 }
@@ -7,16 +7,11 @@ console.log('📁 Current directory:', __dirname);
 console.log('🔑 GEMINI_API_KEY exists:', !!process.env.GEMINI_API_KEY);
 console.log('🔑 GEMINI_API_KEY length:', process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.length : 0);
 
-
 const express = require('express');
 const cors = require('cors');
-const dotenv = require('dotenv');
-const { pool, testConnection } = require('./config/db');
+const { testConnection } = require('./config/db');
 const reportRoutes = require('./routes/reportRoutes');
 const path = require('path');
-
-// Load environment variables
-dotenv.config();
 
 // Import routes
 const menuRoutes = require('./routes/menuRoutes');
@@ -29,52 +24,53 @@ const testRoutes = require('./routes/testRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const aiAnalyticsRoutes = require('./routes/aiAnalyticsRoutes');
 
-
 // Initialize Express app
 const app = express();
 
-
 // ========== CORS CONFIGURATION ==========
-// Allow all origins for development
 app.use(cors({
   origin: [
-    'http://localhost:5500',                    // Local development
+    'http://localhost:5500',
     'http://127.0.0.1:5500',
-    'https://dineqrve-website.web.app',         // Your customer website
-    'https://dineqrve-manager.web.app',         // Your Flutter manager app ← ADD THIS
-    'https://dineqrve.site',                    // Your custom domain (if connected)
-    'https://web-production-4c9c0.up.railway.app' // Your backend itself
+    'https://dineqrve-website.web.app',
+    'https://dineqrve-manager.web.app',
+    'https://dineqrve.site',
+    'https://web-production-4c9c0.up.railway.app'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Middleware
+// ========== RAW BODY MIDDLEWARE (FOR TOYYIBPAY) ==========
+// This MUST come before express.json()
+app.use((req, res, next) => {
+    if (req.url === '/api/payments/toyyibpay-callback' && req.method === 'POST') {
+        let data = '';
+        req.on('data', chunk => {
+            data += chunk;
+        });
+        req.on('end', () => {
+            req.rawBody = data;
+            next();
+        });
+    } else {
+        next();
+    }
+});
+
+// ========== BODY PARSERS ==========
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use(express.urlencoded({ extended: true }));
+// ========== STATIC FILES ==========
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// ========== ROUTES ==========
 app.use('/api/chat', chatRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/test', testRoutes);
 app.use('/api/ai-analytics', aiAnalyticsRoutes);
-
-
-
-
-
-// Test database connection
-testConnection().then(success => {
-    if (!success) {
-        console.log('⚠️ Database connection failed, but app will continue...');
-    }
-});
-
-// Routes
 app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/catering', cateringRoutes);
@@ -95,6 +91,13 @@ app.get('/', (req, res) => {
     });
 });
 
+// Test database connection
+testConnection().then(success => {
+    if (!success) {
+        console.log('⚠️ Database connection failed, but app will continue...');
+    }
+});
+
 // 404 handler
 app.use((req, res) => {
     res.status(404).json({ error: 'Endpoint not found' });
@@ -111,22 +114,6 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📡 API available at http://localhost:${PORT}/api`);
-});
-
-// Capture raw body for webhooks that send non-JSON
-app.use((req, res, next) => {
-    if (req.method === 'POST' && req.url === '/api/payments/toyyibpay-callback') {
-        let data = '';
-        req.on('data', chunk => {
-            data += chunk;
-        });
-        req.on('end', () => {
-            req.rawBody = data;
-            next();
-        });
-    } else {
-        next();
-    }
 });
 
 module.exports = app;

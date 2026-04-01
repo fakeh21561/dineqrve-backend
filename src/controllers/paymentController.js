@@ -75,35 +75,38 @@ const createToyyibPayBill = async (req, res) => {
 };
 
 // Handle ToyyibPay callback
-// Handle ToyyibPay callback
 const handleToyyibPayCallback = async (req, res) => {
     try {
-        // ToyyibPay sends data as form-data, not JSON
-        // req.body is already parsed by express.urlencoded
-        const callbackData = req.body;
-        
         console.log('📞 Payment callback received:');
-        console.log('Body:', callbackData);
         
-        // If body is empty, try to parse from raw
-        if (!callbackData || Object.keys(callbackData).length === 0) {
-            // Some webhooks send data in the raw body
-            if (req.rawBody) {
-                const parsed = new URLSearchParams(req.rawBody);
-                const data = {};
-                for (const [key, value] of parsed) {
-                    data[key] = value;
-                }
-                console.log('Parsed from raw body:', data);
-                await toyyibpayService.handleCallback(data);
-            } else {
-                console.log('No data found in callback');
+        let callbackData = {};
+        
+        // Parse from raw body
+        if (req.rawBody) {
+            console.log('Raw body:', req.rawBody);
+            const params = new URLSearchParams(req.rawBody);
+            for (const [key, value] of params) {
+                callbackData[key] = value;
             }
-        } else {
-            await toyyibpayService.handleCallback(callbackData);
+            console.log('Parsed callback data:', callbackData);
+        } 
+        // Fallback to regular body
+        else if (req.body && Object.keys(req.body).length > 0) {
+            callbackData = req.body;
+            console.log('Body data:', callbackData);
+        } 
+        else {
+            console.log('⚠️ No data found in callback');
         }
         
-        // Always return 200 OK to ToyyibPay
+        // Process callback if we have data
+        if (Object.keys(callbackData).length > 0) {
+            const result = await toyyibpayService.handleCallback(callbackData);
+            console.log('Callback processed:', result);
+        } else {
+            console.log('⚠️ Skipping callback - no data');
+        }
+        
         res.status(200).send('OK');
         
     } catch (error) {
