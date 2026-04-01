@@ -217,8 +217,6 @@ const updateCateringBooking = async (req, res) => {
             return res.status(404).json({ error: 'Catering booking not found' });
         }
         
-        const booking = check[0];
-        const oldStatus = booking.status;
         
         // Update status
         await db.query(

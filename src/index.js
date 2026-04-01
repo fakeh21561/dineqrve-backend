@@ -44,20 +44,7 @@ app.use(cors({
 
 // ========== RAW BODY MIDDLEWARE (FOR TOYYIBPAY) ==========
 // This MUST come before express.json()
-app.use((req, res, next) => {
-    if (req.url === '/api/payments/toyyibpay-callback' && req.method === 'POST') {
-        let data = '';
-        req.on('data', chunk => {
-            data += chunk;
-        });
-        req.on('end', () => {
-            req.rawBody = data;
-            next();
-        });
-    } else {
-        next();
-    }
-});
+//-------------
 
 // ========== BODY PARSERS ==========
 app.use(express.json({ limit: '50mb' }));
