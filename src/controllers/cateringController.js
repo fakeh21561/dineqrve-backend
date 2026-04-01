@@ -217,12 +217,9 @@ const updateCateringBooking = async (req, res) => {
             return res.status(404).json({ error: 'Catering booking not found' });
         }
         
+        const booking = check[0];
+        const oldStatus = booking.status;
         
-        // Update status
-        await db.query(
-            'UPDATE catering_bookings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [status, id]
-        );
         
         // Send email based on new status
  if (status === 'approved' && oldStatus !== 'approved') {
