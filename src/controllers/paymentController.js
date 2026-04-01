@@ -186,17 +186,24 @@ const handleToyyibPayReturn = async (req, res) => {
                     
                     
                     // Add order items
-                    if (cart.length > 0) {
-                        for (const item of cart) {
-                            if (item.id && item.quantity) {
-                                await db.query(
-                                    `INSERT INTO order_items (order_id, menu_item_id, quantity)
-                                     VALUES (?, ?, ?)`,
-                                    [orderId, item.id, item.quantity]
-                                );
-                            }
-                        }
-                    }
+// Add order items with price and instructions
+if (cart.length > 0) {
+    for (const item of cart) {
+        if (item.id && item.quantity) {
+            const instructions = item.instructions || '';
+            const price = item.price || 0;
+            
+            console.log(`📝 Adding: ${item.name} x${item.quantity} - Instructions: "${instructions}"`);
+            
+            await db.query(
+                `INSERT INTO order_items (order_id, menu_item_id, quantity, price, special_instructions)
+                 VALUES (?, ?, ?, ?, ?)`,
+                [orderId, item.id, item.quantity, price, instructions]
+            );
+        }
+    }
+    console.log(`✅ Added ${cart.length} items to order #${orderId} with instructions`);
+}
                     
                     // Insert into payments table
                     await db.query(
