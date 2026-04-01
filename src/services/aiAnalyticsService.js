@@ -185,6 +185,86 @@ class AIAnalyticsService {
             };
         }
     }
+
+    // Get peak hours from database
+async getPeakHours() {
+    try {
+        const [hours] = await db.query(`
+            SELECT 
+                hour_of_day,
+                day_of_week,
+                avg_orders,
+                confidence
+            FROM peak_hours
+            ORDER BY avg_orders DESC
+            LIMIT 10
+        `);
+        
+        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        
+        return hours.map(h => ({
+            hour_of_day: h.hour_of_day,
+            day_of_week: h.day_of_week,
+            avg_orders: parseFloat(h.avg_orders),
+            confidence: parseFloat(h.confidence),
+            day_name: days[h.day_of_week - 1],
+            time_range: `${h.hour_of_day}:00 - ${h.hour_of_day + 1}:00`
+        }));
+    } catch (error) {
+        console.error('Error getting peak hours:', error);
+        return [];
+    }
+}
+
+
+// Predict sales for tomorrow
+async predictSales() {
+    try {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+        const dayOfWeek = tomorrow.getDay();
+        
+        // Get average sales for this day of week
+        const [history] = await db.query(`
+            SELECT 
+                AVG(total_price) as avg_sales,
+                STDDEV(total_price) as std_dev
+            FROM orders 
+            WHERE DAYOFWEEK(created_at) = ?
+            AND created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
+        `, [dayOfWeek + 1]);
+        
+        // Get recent trend (last 7 days)
+        const [trend] = await db.query(`
+            SELECT AVG(total_price) as recent_avg
+            FROM orders 
+            WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        `);
+        
+        // Combine historical avg (70%) with recent trend (30%)
+        const predictedSales = (history[0].avg_sales * 0.7) + (trend[0].recent_avg * 0.3);
+        
+        // Calculate confidence
+        const confidence = history[0].std_dev 
+            ? Math.max(0, 100 - (history[0].std_dev / history[0].avg_sales * 50))
+            : 50;
+        
+        return {
+            date: tomorrowStr,
+            predicted_sales: predictedSales || 0,
+            confidence: Math.min(confidence, 95)
+        };
+        
+    } catch (error) {
+        console.error('Error predicting sales:', error);
+        return {
+            date: new Date().toISOString().split('T')[0],
+            predicted_sales: 0,
+            confidence: 0
+        };
+    }
+}
 }
 
 module.exports = new AIAnalyticsService();

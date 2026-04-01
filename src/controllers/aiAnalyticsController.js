@@ -3,7 +3,7 @@ const aiAnalyticsService = require('../services/aiAnalyticsService');
 // Get popular items
 const getPopularItems = async (req, res) => {
     try {
-        const limit = req.query.limit || 5;
+        const limit = req.query.limit || 10;
         const items = await aiAnalyticsService.getPopularItems(parseInt(limit));
         res.json({
             success: true,
@@ -49,8 +49,38 @@ const getDashboardInsights = async (req, res) => {
     }
 };
 
+// Get peak hours
+const getPeakHours = async (req, res) => {
+    try {
+        const peakHours = await aiAnalyticsService.getPeakHours();
+        res.json({
+            success: true,
+            data: peakHours
+        });
+    } catch (error) {
+        console.error('Error getting peak hours:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Get sales prediction
+const getSalesPrediction = async (req, res) => {
+    try {
+        const prediction = await aiAnalyticsService.predictSales();
+        res.json({
+            success: true,
+            data: prediction
+        });
+    } catch (error) {
+        console.error('Error getting sales prediction:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     getPopularItems,
     estimateTime,
-    getDashboardInsights
+    getDashboardInsights,
+    getPeakHours,      // Add this
+    getSalesPrediction // Add this
 };
