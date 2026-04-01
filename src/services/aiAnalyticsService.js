@@ -41,83 +41,87 @@ class AIAnalyticsService {
     }
     
     // Get estimated preparation time for an order
-    async estimatePreparationTime(orderItems) {
-        try {
-            // Get average preparation time for each item
-            let totalTime = 0;
-            let itemCount = 0;
+async estimatePreparationTime(orderItems) {
+    try {
+        let totalTime = 0;
+        let itemCount = 0;
+        
+        for (const item of orderItems) {
+            // Get average preparation time for this menu item
+            const [timeData] = await db.query(`
+                SELECT 
+                    AVG(TIMESTAMPDIFF(MINUTE, o.created_at, o.updated_at)) as avg_time
+                FROM order_items oi
+                JOIN orders o ON oi.order_id = o.id
+                WHERE oi.menu_item_id = ? 
+                AND o.status = 'completed'
+                AND o.updated_at IS NOT NULL
+                AND TIMESTAMPDIFF(MINUTE, o.created_at, o.updated_at) < 120
+            `, [item.menu_item_id]);
             
-            for (const item of orderItems) {
-                // Get historical preparation time for this menu item
-                const [timeData] = await db.query(`
-                    SELECT 
-                        AVG(TIMESTAMPDIFF(MINUTE, o.created_at, NOW())) as avg_time
-                    FROM order_items oi
-                    JOIN orders o ON oi.order_id = o.id
-                    WHERE oi.menu_item_id = ? 
-                    AND o.status = 'completed'
-                `, [item.menu_item_id]);
+            let itemTime = 5; // Default 5 minutes
+            
+            if (timeData[0] && timeData[0].avg_time && timeData[0].avg_time > 0) {
+                itemTime = Math.round(timeData[0].avg_time);
+            } else {
+                // Default times by category
+                const [menuItem] = await db.query(
+                    'SELECT category FROM menu_items WHERE id = ?',
+                    [item.menu_item_id]
+                );
+                const category = menuItem[0]?.category || '';
                 
-                let itemTime = 5; // Default 5 minutes
-                
-                if (timeData[0] && timeData[0].avg_time) {
-                    itemTime = Math.round(timeData[0].avg_time);
-                } else {
-                    // Default times by category
-                    const [menuItem] = await db.query(
-                        'SELECT category FROM menu_items WHERE id = ?',
-                        [item.menu_item_id]
-                    );
-                    const category = menuItem[0]?.category || '';
-                    
-                    if (category.includes('Main')) itemTime = 15;
-                    else if (category.includes('Appetizer')) itemTime = 8;
-                    else if (category.includes('Beverage')) itemTime = 3;
-                    else if (category.includes('Dessert')) itemTime = 5;
-                    else itemTime = 10;
-                }
-                
-                totalTime += itemTime * item.quantity;
-                itemCount += item.quantity;
+                if (category.includes('Main')) itemTime = 15;
+                else if (category.includes('Appetizer')) itemTime = 8;
+                else if (category.includes('Beverage')) itemTime = 3;
+                else if (category.includes('Dessert')) itemTime = 5;
+                else itemTime = 10;
             }
             
-            // Calculate base time (at least 10 minutes)
-            let estimatedTime = Math.max(10, Math.round(totalTime / (itemCount || 1)));
-            
-            // Add rush hour adjustment
-            const hour = new Date().getHours();
-            const isRushHour = (hour >= 12 && hour <= 14) || (hour >= 19 && hour <= 21);
-            if (isRushHour) {
-                estimatedTime = Math.round(estimatedTime * 1.5);
-            }
-            
-            // Check current pending orders
-            const [pendingOrders] = await db.query(
-                'SELECT COUNT(*) as pending FROM orders WHERE status = "pending" OR status = "preparing"'
-            );
-            if (pendingOrders[0].pending > 3) {
-                estimatedTime += Math.min(15, Math.floor(pendingOrders[0].pending / 2) * 5);
-            }
-            
-            return {
-                estimated_minutes: estimatedTime,
-                estimated_display: estimatedTime < 60 ? 
-                    `${estimatedTime} minutes` : 
-                    `${Math.floor(estimatedTime / 60)} hour ${estimatedTime % 60} minutes`,
-                is_rush_hour: isRushHour,
-                orders_ahead: pendingOrders[0].pending
-            };
-            
-        } catch (error) {
-            console.error('Error estimating time:', error);
-            return {
-                estimated_minutes: 15,
-                estimated_display: '15 minutes',
-                is_rush_hour: false,
-                orders_ahead: 0
-            };
+            totalTime += itemTime * item.quantity;
+            itemCount += item.quantity;
         }
+        
+        // Calculate base time (at least 10 minutes, at most 45 minutes)
+        let estimatedTime = Math.max(10, Math.min(45, Math.round(totalTime / (itemCount || 1))));
+        
+        // Add rush hour adjustment
+        const hour = new Date().getHours();
+        const isRushHour = (hour >= 12 && hour <= 14) || (hour >= 19 && hour <= 21);
+        if (isRushHour) {
+            estimatedTime = Math.round(estimatedTime * 1.3);
+        }
+        
+        // Check current pending orders
+        const [pendingOrders] = await db.query(
+            'SELECT COUNT(*) as pending FROM orders WHERE status IN ("pending", "preparing")'
+        );
+        if (pendingOrders[0].pending > 3) {
+            estimatedTime += Math.min(15, Math.floor(pendingOrders[0].pending / 2) * 3);
+        }
+        
+        // Cap at 45 minutes max
+        estimatedTime = Math.min(45, estimatedTime);
+        
+        return {
+            estimated_minutes: estimatedTime,
+            estimated_display: estimatedTime < 60 ? 
+                `${estimatedTime} minutes` : 
+                `${Math.floor(estimatedTime / 60)} hour ${estimatedTime % 60} minutes`,
+            is_rush_hour: isRushHour,
+            orders_ahead: pendingOrders[0].pending
+        };
+        
+    } catch (error) {
+        console.error('Error estimating time:', error);
+        return {
+            estimated_minutes: 15,
+            estimated_display: '15 minutes',
+            is_rush_hour: false,
+            orders_ahead: 0
+        };
     }
+}
     
     // Get AI insights for dashboard
     async getDashboardInsights() {
